@@ -1,0 +1,56 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Aturan dasar: mengizinkan baca untuk semua pengguna yang terautentikasi
+    match /{document=**} {
+      allow read: if request.auth != null;
+      allow write: if false;  // Default deny writes
+    }
+    
+    // Users collection - pengguna hanya bisa membaca data pengguna lain dan menulis data mereka sendiri
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+      
+      // Aturan tambahan untuk mengizinkan akses ke operasi listen
+      allow list: if request.auth != null;
+    }
+    
+    // Chats collection - akses dibatasi hanya untuk peserta chat
+    match /chats/{chatId} {
+      // Izinkan operasi read and list untuk chat
+      allow read, list: if request.auth != null && 
+        (resource == null || request.auth.uid in resource.data.participants);
+      
+      // Izinkan pembuatan chat baru
+      allow create: if request.auth != null && 
+        request.auth.uid in request.resource.data.participants;
+      
+      // Izinkan update chat jika pengguna adalah peserta
+      allow update: if request.auth != null && 
+        request.auth.uid in resource.data.participants;
+      
+      // Pesan dalam chat
+      match /messages/{messageId} {
+        allow read, write, list: if request.auth != null && 
+          request.auth.uid in get(/databases/$(database)/documents/chats/$(chatId)).data.participants;
+      }
+    }
+    
+    // Calls collection - akses dibatasi untuk initiator dan recipient
+    match /calls/{callId} {
+      // Izinkan membaca jika pengguna adalah initiator atau recipient
+      allow read, list: if request.auth != null && 
+        (resource == null || request.auth.uid == resource.data.initiatorId || request.auth.uid == resource.data.recipientId);
+      
+      // Izinkan membuat panggilan baru
+      allow create: if request.auth != null && 
+        request.auth.uid == request.resource.data.initiatorId;
+      
+      // Izinkan update panggilan jika pengguna adalah initiator atau recipient
+      allow update: if request.auth != null && 
+        (request.auth.uid == resource.data.initiatorId || request.auth.uid == resource.data.recipientId);
+    }
+  }
+} 
